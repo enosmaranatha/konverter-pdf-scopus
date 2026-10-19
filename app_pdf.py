@@ -42,10 +42,10 @@ if uploaded_files:
         
         with st.expander(f"📄 File {index+1}: {file.name}", expanded=True):
             col1, col2, col3, col4 = st.columns(4)
-            ti = col1.text_input("Judul (TI)", value=default_title, key=f"ti_{index}")
-            py = col2.text_input("Tahun (PY)", value=detected_year, key=f"py_{index}")
-            so = col3.text_input("Penerbit (SO)", value=detected_pub, key=f"so_{index}")
-            au = col4.text_input("Komite (AU)", value=detected_kom, key=f"au_{index}")
+            ti = col1.text_input("Judul", value=default_title, key=f"ti_{index}")
+            py = col2.text_input("Tahun", value=detected_year, key=f"py_{index}")
+            so = col3.text_input("Penerbit", value=detected_pub, key=f"so_{index}")
+            au = col4.text_input("Komite", value=detected_kom, key=f"au_{index}")
             
             metadata_dict[file.name] = {"TI": ti, "PY": py, "SO": so, "AU": au}
             
@@ -78,19 +78,20 @@ if uploaded_files:
                         
                         if len(clean_text) > 50:
                             data_scopus.append({
-                                'TI': f"{meta['TI']} - Halaman {i+1}", 
-                                'AB': clean_text,                   
-                                'PY': meta['PY'],
-                                'SO': meta['SO'],
-                                'AU': meta['AU'],
-                                'DT': 'Article',
-                                # --- TAMBAHAN KOLOM PENGECOH UNTUK MENCEGAH ERROR BIBLIOSHINY ---
-                                'TC': '0',                        # Total Citations (Sitasi)
-                                'CR': 'Tidak ada referensi',      # Cited References (Daftar Pustaka)
-                                'DE': 'Standard',                 # Author Keywords
-                                'ID': 'Electric Vehicle',         # Keywords Plus
-                                'C1': meta['SO'],                 # Affiliation
-                                'RP': meta['SO']                  # Reprint Address
+                                # MENGGUNAKAN NAMA KOLOM SCOPUS ASLI (BUKAN KODE 2 HURUF)
+                                'Authors': meta['AU'],
+                                'Title': f"{meta['TI']} - Halaman {i+1}",
+                                'Year': meta['PY'],
+                                'Source title': meta['SO'],
+                                'Abstract': clean_text,
+                                'Document Type': 'Article',
+                                'Cited by': '0',
+                                'References': 'ISO, Standard, Vehicle', 
+                                'Author Keywords': 'Standard; Electric Vehicle',
+                                'Index Keywords': 'Standard; Electric Vehicle',
+                                'Affiliations': meta['SO'],
+                                'Source': 'Scopus',
+                                'EID': f'2-s2.0-850{index}{i}12345'
                             })
             except Exception as e:
                 st.error(f"Gagal memproses file {file.name}: {e}")
@@ -107,7 +108,7 @@ if uploaded_files:
             st.download_button(
                 label="📥 Download 1 CSV Gabungan untuk Biblioshiny",
                 data=csv,
-                file_name="Gabungan_Standar_EV_Final.csv",
+                file_name="Gabungan_Standar_EV_ScopusAsli.csv",
                 mime="text/csv",
                 type="primary"
             )
