@@ -2,38 +2,50 @@ import streamlit as st
 import pandas as pd
 import PyPDF2
 import re
-import io
 
 st.set_page_config(page_title="Bulk PDF ke Scopus", layout="wide")
 st.title("📑 Konverter Banyak PDF Standar ke CSV Scopus")
-st.write("Aplikasi ini membaca banyak file PDF ISO/IEC/UNECE sekaligus, membersihkan *watermark* BSN, dan menggabungkannya menjadi 1 file CSV untuk **Biblioshiny (R-Studio)**.")
+st.write("Aplikasi ini membaca banyak file PDF sekaligus, membersihkan watermark BSN, dan menggabungkannya menjadi 1 file CSV. **Anda bisa mengatur Tahun Terbit yang berbeda untuk setiap file.**")
 
-# 1. Upload Multiple Files (Bisa blok banyak file sekaligus)
+# 1. Upload Multiple Files
 uploaded_files = st.file_uploader("Upload Dokumen Standar (PDF)", type=["pdf"], accept_multiple_files=True)
 
 if uploaded_files:
-    st.info(f"{len(uploaded_files)} file PDF berhasil dimuat. Siap diproses!")
+    st.info(f"{len(uploaded_files)} file PDF berhasil dimuat. Silakan atur metadatanya di bawah ini:")
     
-    # Pengaturan Metadata Umum
-    st.markdown("### ⚙️ Isi Metadata Standar (Umum)")
-    st.write("Isian di bawah ini akan diterapkan ke semua file yang diunggah. **Judul (TI) akan otomatis diambil dari nama masing-masing file.**")
+    st.markdown("### ⚙️ Pengaturan Metadata per File")
     
-    col1, col2, col3 = st.columns(3)
-    py_input = col1.text_input("Tahun Terbit (PY)", value="2024")
-    so_input = col2.text_input("Penerbit (SO)", value="ISO/IEC")
-    au_input = col3.text_input("Komite/Penulis (AU)", value="Technical Committee")
+    # Dictionary untuk menyimpan pengaturan tiap-tiap file
+    metadata_dict = {}
     
+    # Memunculkan kotak input (kolom) untuk SETIAP file yang diunggah
+    for index, file in enumerate(uploaded_files):
+        default_title = file.name.replace(".pdf", "").replace(".PDF", "")
+        
+        # Membuat kotak expander untuk masing-masing file
+        with st.expander(f"📄 File {index+1}: {file.name}", expanded=True):
+            col1, col2, col3, col4 = st.columns(4)
+            ti = col1.text_input("Judul (TI)", value=default_title, key=f"ti_{index}")
+            py = col2.text_input("Tahun (PY)", value="2024", key=f"py_{index}")
+            so = col3.text_input("Penerbit (SO)", value="ISO", key=f"so_{index}")
+            au = col4.text_input("Komite (AU)", value="ISO/TC", key=f"au_{index}")
+            
+            # Menyimpan isian user ke dalam memori
+            metadata_dict[file.name] = {"TI": ti, "PY": py, "SO": so, "AU": au}
+            
+    # Tombol Eksekusi
     if st.button("🚀 Ekstrak & Gabungkan Semua ke CSV", use_container_width=True):
         data_scopus = []
-        
-        # Tampilan indikator progress
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        # Looping setiap file PDF yang diunggah
         for index, file in enumerate(uploaded_files):
-            # Ambil nama file untuk dijadikan Judul, buang akhiran .pdf
-            judul_file = file.name.replace(".pdf", "").replace(".PDF", "")
+            # Mengambil metadata spesifik (Tahun, Judul) yang tadi diketik untuk file INI
+            meta = metadata_dict[file.name]
+            judul_file = meta["TI"]
+            tahun_file = meta["PY"]
+            penerbit_file = meta["SO"]
+            komite_file = meta["AU"]
             
             status_text.text(f"Sedang memproses file {index + 1} dari {len(uploaded_files)}: {judul_file}...")
             
@@ -41,49 +53,41 @@ if uploaded_files:
                 pdf_reader = PyPDF2.PdfReader(file)
                 jumlah_halaman = len(pdf_reader.pages)
                 
-                # Looping per halaman dalam 1 file
                 for i in range(jumlah_halaman):
                     page = pdf_reader.pages[i]
                     text = page.extract_text()
                     
                     if text:
-                        # PROSES PEMBERSIHAN (CLEANING) WATERMARK BSN & TEKS SAMPAH
                         clean_text = text.replace('\n', ' ').strip()
-                        
                         clean_text = re.sub(r'Penanggung jawab penggunaan: Direktur Pengembangan Standar Mekanika, Energi, Infrastruktur dan Teknologi Informasi BSN', '', clean_text, flags=re.IGNORECASE)
                         clean_text = re.sub(r"'Copy standar ini dibuat oleh BSN untuk Kegiatan Perumusan SNI dan tidak untuk di komersialkan'", '', clean_text, flags=re.IGNORECASE)
                         clean_text = re.sub(r'ISO\s\d+(-\d+)?:\d{4}\([a-z]{2}\)', '', clean_text, flags=re.IGNORECASE)
-                        
                         clean_text = re.sub(r'\s+', ' ', clean_text).strip()
                         
-                        # Jika teks valid (bukan halaman kosong)
                         if len(clean_text) > 50:
                             data_scopus.append({
                                 'TI': f"{judul_file} - Halaman {i+1}", 
                                 'AB': clean_text,                   
-                                'PY': py_input,
-                                'SO': so_input,
-                                'AU': au_input,
+                                'PY': tahun_file,  # Menggunakan tahun spesifik file tersebut
+                                'SO': penerbit_file,
+                                'AU': komite_file,
                                 'DT': 'Article'                     
                             })
             except Exception as e:
                 st.error(f"Gagal memproses file {file.name}: {e}")
             
-            # Update bar progress
             progress_bar.progress((index + 1) / len(uploaded_files))
             
         status_text.text("Selesai memproses semua file!")
         
-        # Jika ada data yang berhasil diekstrak
         if len(data_scopus) > 0:
             df_scopus = pd.DataFrame(data_scopus)
+            st.success(f"✅ Selesai! Berhasil menggabungkan {len(df_scopus)} halaman teks menjadi 1 file CSV format Scopus.")
             
-            st.success(f"✅ Selesai! Berhasil menggabungkan {len(df_scopus)} halaman teks dari {len(uploaded_files)} dokumen menjadi 1 file CSV format Scopus.")
+            # Preview tabel
+            st.dataframe(df_scopus.head(5))
             
-            st.write("🎯 **Preview Hasil Gabungan (Perhatikan kolom TI otomatis berubah sesuai nama file):**")
-            st.dataframe(df_scopus.head(10))
-            
-            # Tombol Download 1 File CSV
+            # Download
             csv = df_scopus.to_csv(index=False, encoding='utf-8')
             st.download_button(
                 label="📥 Download 1 CSV Gabungan untuk Biblioshiny",
@@ -93,4 +97,4 @@ if uploaded_files:
                 type="primary"
             )
         else:
-            st.warning("Tidak ada teks yang dapat diekstrak. Pastikan PDF yang diunggah berisi teks, bukan hasil *scan* gambar.")
+            st.warning("Tidak ada teks yang dapat diekstrak. Pastikan PDF yang diunggah berisi teks.")
