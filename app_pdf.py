@@ -4,78 +4,93 @@ import PyPDF2
 import re
 import io
 
-st.set_page_config(page_title="PDF Standar ke Scopus", layout="wide")
-st.title("📑 Konverter PDF Dokumen Standar ke CSV Scopus")
-st.write("Aplikasi ini membaca file PDF ISO/IEC/UNECE, membersihkan *watermark* BSN, dan mengubah teksnya menjadi format Scopus untuk **Biblioshiny (R-Studio)**.")
+st.set_page_config(page_title="Bulk PDF ke Scopus", layout="wide")
+st.title("📑 Konverter Banyak PDF Standar ke CSV Scopus")
+st.write("Aplikasi ini membaca banyak file PDF ISO/IEC/UNECE sekaligus, membersihkan *watermark* BSN, dan menggabungkannya menjadi 1 file CSV untuk **Biblioshiny (R-Studio)**.")
 
-# 1. Upload File PDF
-uploaded_file = st.file_uploader("Upload Dokumen Standar (PDF)", type=["pdf"])
+# 1. Upload Multiple Files (Bisa blok banyak file sekaligus)
+uploaded_files = st.file_uploader("Upload Dokumen Standar (PDF)", type=["pdf"], accept_multiple_files=True)
 
-if uploaded_file is not None:
-    st.info("Membaca dan mengekstrak teks dari PDF...")
+if uploaded_files:
+    st.info(f"{len(uploaded_files)} file PDF berhasil dimuat. Siap diproses!")
     
-    try:
-        # Membaca PDF
-        pdf_reader = PyPDF2.PdfReader(uploaded_file)
-        jumlah_halaman = len(pdf_reader.pages)
+    # Pengaturan Metadata Umum
+    st.markdown("### ⚙️ Isi Metadata Standar (Umum)")
+    st.write("Isian di bawah ini akan diterapkan ke semua file yang diunggah. **Judul (TI) akan otomatis diambil dari nama masing-masing file.**")
+    
+    col1, col2, col3 = st.columns(3)
+    py_input = col1.text_input("Tahun Terbit (PY)", value="2024")
+    so_input = col2.text_input("Penerbit (SO)", value="ISO/IEC")
+    au_input = col3.text_input("Komite/Penulis (AU)", value="Technical Committee")
+    
+    if st.button("🚀 Ekstrak & Gabungkan Semua ke CSV", use_container_width=True):
+        data_scopus = []
         
-        # Pengaturan Metadata
-        st.markdown("### ⚙️ Isi Metadata Standar")
-        col1, col2, col3, col4 = st.columns(4)
-        ti_input = col1.text_input("Judul Standar (TI)", value="ISO 5474-2")
-        py_input = col2.text_input("Tahun Terbit (PY)", value="2024")
-        so_input = col3.text_input("Penerbit (SO)", value="ISO")
-        au_input = col4.text_input("Komite/Penulis (AU)", value="ISO/TC 22")
+        # Tampilan indikator progress
+        progress_bar = st.progress(0)
+        status_text = st.empty()
         
-        if st.button("🚀 Ekstrak & Konversi ke Format Scopus", use_container_width=True):
-            data_scopus = []
+        # Looping setiap file PDF yang diunggah
+        for index, file in enumerate(uploaded_files):
+            # Ambil nama file untuk dijadikan Judul, buang akhiran .pdf
+            judul_file = file.name.replace(".pdf", "").replace(".PDF", "")
             
-            # Looping per halaman
-            for i in range(jumlah_halaman):
-                page = pdf_reader.pages[i]
-                text = page.extract_text()
+            status_text.text(f"Sedang memproses file {index + 1} dari {len(uploaded_files)}: {judul_file}...")
+            
+            try:
+                pdf_reader = PyPDF2.PdfReader(file)
+                jumlah_halaman = len(pdf_reader.pages)
                 
-                if text:
-                    # PROSES PEMBERSIHAN (CLEANING) WATERMARK BSN & TEKS SAMPAH
-                    # Hapus spasi berlebih dan enter baru
-                    clean_text = text.replace('\n', ' ').strip()
+                # Looping per halaman dalam 1 file
+                for i in range(jumlah_halaman):
+                    page = pdf_reader.pages[i]
+                    text = page.extract_text()
                     
-                    # Hapus kalimat watermark BSN (Gunakan regex agar case-insensitive)
-                    clean_text = re.sub(r'Penanggung jawab penggunaan: Direktur Pengembangan Standar Mekanika, Energi, Infrastruktur dan Teknologi Informasi BSN', '', clean_text, flags=re.IGNORECASE)
-                    clean_text = re.sub(r"'Copy standar ini dibuat oleh BSN untuk Kegiatan Perumusan SNI dan tidak untuk di komersialkan'", '', clean_text, flags=re.IGNORECASE)
-                    clean_text = re.sub(r'ISO 5474-2:2024\(en\)', '', clean_text, flags=re.IGNORECASE)
-                    
-                    # Membersihkan spasi ganda akibat penghapusan kata
-                    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-                    
-                    # Jika setelah dibersihkan teksnya masih panjang (bukan halaman kosong/hanya angka)
-                    if len(clean_text) > 50:
-                        data_scopus.append({
-                            'TI': f"{ti_input} - Halaman {i+1}", # Membedakan judul tiap baris
-                            'AB': clean_text,                   # Teks halaman jadi Abstrak
-                            'PY': py_input,
-                            'SO': so_input,
-                            'AU': au_input,
-                            'DT': 'Article'                     # Wajib Article untuk Biblioshiny
-                        })
+                    if text:
+                        # PROSES PEMBERSIHAN (CLEANING) WATERMARK BSN & TEKS SAMPAH
+                        clean_text = text.replace('\n', ' ').strip()
+                        
+                        clean_text = re.sub(r'Penanggung jawab penggunaan: Direktur Pengembangan Standar Mekanika, Energi, Infrastruktur dan Teknologi Informasi BSN', '', clean_text, flags=re.IGNORECASE)
+                        clean_text = re.sub(r"'Copy standar ini dibuat oleh BSN untuk Kegiatan Perumusan SNI dan tidak untuk di komersialkan'", '', clean_text, flags=re.IGNORECASE)
+                        clean_text = re.sub(r'ISO\s\d+(-\d+)?:\d{4}\([a-z]{2}\)', '', clean_text, flags=re.IGNORECASE)
+                        
+                        clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+                        
+                        # Jika teks valid (bukan halaman kosong)
+                        if len(clean_text) > 50:
+                            data_scopus.append({
+                                'TI': f"{judul_file} - Halaman {i+1}", 
+                                'AB': clean_text,                   
+                                'PY': py_input,
+                                'SO': so_input,
+                                'AU': au_input,
+                                'DT': 'Article'                     
+                            })
+            except Exception as e:
+                st.error(f"Gagal memproses file {file.name}: {e}")
             
-            # Membuat DataFrame
+            # Update bar progress
+            progress_bar.progress((index + 1) / len(uploaded_files))
+            
+        status_text.text("Selesai memproses semua file!")
+        
+        # Jika ada data yang berhasil diekstrak
+        if len(data_scopus) > 0:
             df_scopus = pd.DataFrame(data_scopus)
             
-            st.success(f"✅ Selesai! Berhasil mengekstrak {len(df_scopus)} halaman teks valid menjadi format Scopus.")
+            st.success(f"✅ Selesai! Berhasil menggabungkan {len(df_scopus)} halaman teks dari {len(uploaded_files)} dokumen menjadi 1 file CSV format Scopus.")
             
-            st.write("🎯 **Preview Hasil Akhir (Perhatikan teks BSN sudah hilang di kolom AB):**")
-            st.dataframe(df_scopus.head(5))
+            st.write("🎯 **Preview Hasil Gabungan (Perhatikan kolom TI otomatis berubah sesuai nama file):**")
+            st.dataframe(df_scopus.head(10))
             
-            # Tombol Download
+            # Tombol Download 1 File CSV
             csv = df_scopus.to_csv(index=False, encoding='utf-8')
             st.download_button(
-                label="📥 Download CSV Scopus",
+                label="📥 Download 1 CSV Gabungan untuk Biblioshiny",
                 data=csv,
-                file_name=f"Scopus_{ti_input}.csv",
+                file_name="Gabungan_Standar_EV.csv",
                 mime="text/csv",
                 type="primary"
             )
-            
-    except Exception as e:
-        st.error(f"Terjadi kesalahan saat memproses PDF: {e}")
+        else:
+            st.warning("Tidak ada teks yang dapat diekstrak. Pastikan PDF yang diunggah berisi teks, bukan hasil *scan* gambar.")
