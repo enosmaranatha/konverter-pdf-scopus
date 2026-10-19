@@ -15,46 +15,33 @@ if uploaded_files:
     
     metadata_dict = {}
     
-    # Looping untuk memunculkan kotak dan melakukan AUTO-DETECT per file
     for index, file in enumerate(uploaded_files):
-        # Default nilai jika deteksi gagal
         detected_year = "2024"
         detected_pub = "ISO"
         detected_kom = "ISO/TC"
         
-        # --- PROSES AUTO-DETECT DARI HALAMAN PERTAMA ---
         try:
             pdf_reader = PyPDF2.PdfReader(file)
             if len(pdf_reader.pages) > 0:
                 text_sampul = pdf_reader.pages[0].extract_text()
-                
-                # 1. Deteksi Tahun (Cari angka diawali 19 atau 20)
                 tahun_match = re.search(r'\b(20\d{2}|19\d{2})\b', text_sampul)
                 if tahun_match:
                     detected_year = tahun_match.group(1)
-                    
-                # 2. Deteksi Penerbit
                 if "IEC" in text_sampul: 
                     detected_pub = "IEC"
                 elif "UNECE" in text_sampul or "UN/ECE" in text_sampul: 
                     detected_pub = "UNECE"
-                
-                # 3. Deteksi Komite (Cari tulisan TC angka, misal TC 22)
                 tc_match = re.search(r'(TC\s*\d+|SC\s*\d+)', text_sampul, re.IGNORECASE)
                 if tc_match:
                     detected_kom = f"{detected_pub}/{tc_match.group(1).upper()}"
         except:
-            pass # Lanjut menggunakan nilai default jika error membaca sampul
+            pass 
         
-        # Kembalikan posisi file ke awal agar bisa diekstrak penuh nanti
         file.seek(0)
-        # -----------------------------------------------
-        
         default_title = file.name.replace(".pdf", "").replace(".PDF", "")
         
         with st.expander(f"📄 File {index+1}: {file.name}", expanded=True):
             col1, col2, col3, col4 = st.columns(4)
-            # Nilai 'value' otomatis diisi dari hasil deteksi di atas
             ti = col1.text_input("Judul (TI)", value=default_title, key=f"ti_{index}")
             py = col2.text_input("Tahun (PY)", value=detected_year, key=f"py_{index}")
             so = col3.text_input("Penerbit (SO)", value=detected_pub, key=f"so_{index}")
@@ -69,7 +56,7 @@ if uploaded_files:
         status_text = st.empty()
         
         for index, file in enumerate(uploaded_files):
-            file.seek(0) # Pastikan membaca file dari awal
+            file.seek(0) 
             meta = metadata_dict[file.name]
             
             status_text.text(f"Sedang memproses file {index + 1} dari {len(uploaded_files)}: {meta['TI']}...")
@@ -96,7 +83,14 @@ if uploaded_files:
                                 'PY': meta['PY'],
                                 'SO': meta['SO'],
                                 'AU': meta['AU'],
-                                'DT': 'Article'                     
+                                'DT': 'Article',
+                                # --- TAMBAHAN KOLOM PENGECOH UNTUK MENCEGAH ERROR BIBLIOSHINY ---
+                                'TC': '0',                        # Total Citations (Sitasi)
+                                'CR': 'Tidak ada referensi',      # Cited References (Daftar Pustaka)
+                                'DE': 'Standard',                 # Author Keywords
+                                'ID': 'Electric Vehicle',         # Keywords Plus
+                                'C1': meta['SO'],                 # Affiliation
+                                'RP': meta['SO']                  # Reprint Address
                             })
             except Exception as e:
                 st.error(f"Gagal memproses file {file.name}: {e}")
@@ -108,13 +102,12 @@ if uploaded_files:
         if len(data_scopus) > 0:
             df_scopus = pd.DataFrame(data_scopus)
             st.success(f"✅ Selesai! Berhasil menggabungkan {len(df_scopus)} halaman teks menjadi 1 file CSV format Scopus.")
-            st.dataframe(df_scopus.head(5))
             
             csv = df_scopus.to_csv(index=False, encoding='utf-8')
             st.download_button(
                 label="📥 Download 1 CSV Gabungan untuk Biblioshiny",
                 data=csv,
-                file_name="Gabungan_Standar_EV.csv",
+                file_name="Gabungan_Standar_EV_Final.csv",
                 mime="text/csv",
                 type="primary"
             )
