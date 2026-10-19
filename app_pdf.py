@@ -5,32 +5,61 @@ import re
 
 st.set_page_config(page_title="Bulk PDF ke Scopus", layout="wide")
 st.title("📑 Konverter Banyak PDF Standar ke CSV Scopus")
-st.write("Aplikasi ini membaca banyak file PDF sekaligus, membersihkan watermark BSN, dan menggabungkannya menjadi 1 file CSV. **Anda bisa mengatur Tahun Terbit yang berbeda untuk setiap file.**")
+st.write("Aplikasi ini membaca banyak file PDF sekaligus dan **otomatis mendeteksi Tahun & Penerbit** dari halaman sampulnya untuk format Biblioshiny (R-Studio).")
 
 # 1. Upload Multiple Files
 uploaded_files = st.file_uploader("Upload Dokumen Standar (PDF)", type=["pdf"], accept_multiple_files=True)
 
 if uploaded_files:
-    st.info(f"{len(uploaded_files)} file PDF berhasil dimuat. Silakan atur metadatanya di bawah ini:")
+    st.info(f"{len(uploaded_files)} file PDF berhasil dimuat. Sistem telah mendeteksi metadatanya secara otomatis. Silakan periksa di bawah ini:")
     
-    st.markdown("### ⚙️ Pengaturan Metadata per File")
-    
-    # Dictionary untuk menyimpan pengaturan tiap-tiap file
     metadata_dict = {}
     
-    # Memunculkan kotak input (kolom) untuk SETIAP file yang diunggah
+    # Looping untuk memunculkan kotak dan melakukan AUTO-DETECT per file
     for index, file in enumerate(uploaded_files):
+        # Default nilai jika deteksi gagal
+        detected_year = "2024"
+        detected_pub = "ISO"
+        detected_kom = "ISO/TC"
+        
+        # --- PROSES AUTO-DETECT DARI HALAMAN PERTAMA ---
+        try:
+            pdf_reader = PyPDF2.PdfReader(file)
+            if len(pdf_reader.pages) > 0:
+                text_sampul = pdf_reader.pages[0].extract_text()
+                
+                # 1. Deteksi Tahun (Cari angka diawali 19 atau 20)
+                tahun_match = re.search(r'\b(20\d{2}|19\d{2})\b', text_sampul)
+                if tahun_match:
+                    detected_year = tahun_match.group(1)
+                    
+                # 2. Deteksi Penerbit
+                if "IEC" in text_sampul: 
+                    detected_pub = "IEC"
+                elif "UNECE" in text_sampul or "UN/ECE" in text_sampul: 
+                    detected_pub = "UNECE"
+                
+                # 3. Deteksi Komite (Cari tulisan TC angka, misal TC 22)
+                tc_match = re.search(r'(TC\s*\d+|SC\s*\d+)', text_sampul, re.IGNORECASE)
+                if tc_match:
+                    detected_kom = f"{detected_pub}/{tc_match.group(1).upper()}"
+        except:
+            pass # Lanjut menggunakan nilai default jika error membaca sampul
+        
+        # Kembalikan posisi file ke awal agar bisa diekstrak penuh nanti
+        file.seek(0)
+        # -----------------------------------------------
+        
         default_title = file.name.replace(".pdf", "").replace(".PDF", "")
         
-        # Membuat kotak expander untuk masing-masing file
         with st.expander(f"📄 File {index+1}: {file.name}", expanded=True):
             col1, col2, col3, col4 = st.columns(4)
+            # Nilai 'value' otomatis diisi dari hasil deteksi di atas
             ti = col1.text_input("Judul (TI)", value=default_title, key=f"ti_{index}")
-            py = col2.text_input("Tahun (PY)", value="2024", key=f"py_{index}")
-            so = col3.text_input("Penerbit (SO)", value="ISO", key=f"so_{index}")
-            au = col4.text_input("Komite (AU)", value="ISO/TC", key=f"au_{index}")
+            py = col2.text_input("Tahun (PY)", value=detected_year, key=f"py_{index}")
+            so = col3.text_input("Penerbit (SO)", value=detected_pub, key=f"so_{index}")
+            au = col4.text_input("Komite (AU)", value=detected_kom, key=f"au_{index}")
             
-            # Menyimpan isian user ke dalam memori
             metadata_dict[file.name] = {"TI": ti, "PY": py, "SO": so, "AU": au}
             
     # Tombol Eksekusi
@@ -40,14 +69,10 @@ if uploaded_files:
         status_text = st.empty()
         
         for index, file in enumerate(uploaded_files):
-            # Mengambil metadata spesifik (Tahun, Judul) yang tadi diketik untuk file INI
+            file.seek(0) # Pastikan membaca file dari awal
             meta = metadata_dict[file.name]
-            judul_file = meta["TI"]
-            tahun_file = meta["PY"]
-            penerbit_file = meta["SO"]
-            komite_file = meta["AU"]
             
-            status_text.text(f"Sedang memproses file {index + 1} dari {len(uploaded_files)}: {judul_file}...")
+            status_text.text(f"Sedang memproses file {index + 1} dari {len(uploaded_files)}: {meta['TI']}...")
             
             try:
                 pdf_reader = PyPDF2.PdfReader(file)
@@ -66,11 +91,11 @@ if uploaded_files:
                         
                         if len(clean_text) > 50:
                             data_scopus.append({
-                                'TI': f"{judul_file} - Halaman {i+1}", 
+                                'TI': f"{meta['TI']} - Halaman {i+1}", 
                                 'AB': clean_text,                   
-                                'PY': tahun_file,  # Menggunakan tahun spesifik file tersebut
-                                'SO': penerbit_file,
-                                'AU': komite_file,
+                                'PY': meta['PY'],
+                                'SO': meta['SO'],
+                                'AU': meta['AU'],
                                 'DT': 'Article'                     
                             })
             except Exception as e:
@@ -83,11 +108,8 @@ if uploaded_files:
         if len(data_scopus) > 0:
             df_scopus = pd.DataFrame(data_scopus)
             st.success(f"✅ Selesai! Berhasil menggabungkan {len(df_scopus)} halaman teks menjadi 1 file CSV format Scopus.")
-            
-            # Preview tabel
             st.dataframe(df_scopus.head(5))
             
-            # Download
             csv = df_scopus.to_csv(index=False, encoding='utf-8')
             st.download_button(
                 label="📥 Download 1 CSV Gabungan untuk Biblioshiny",
@@ -96,5 +118,3 @@ if uploaded_files:
                 mime="text/csv",
                 type="primary"
             )
-        else:
-            st.warning("Tidak ada teks yang dapat diekstrak. Pastikan PDF yang diunggah berisi teks.")
